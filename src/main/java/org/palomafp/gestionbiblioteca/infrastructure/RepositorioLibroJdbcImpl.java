@@ -3,6 +3,7 @@ package org.palomafp.gestionbiblioteca.infrastructure;
 import org.palomafp.gestionbiblioteca.domain.Isbn;
 import org.palomafp.gestionbiblioteca.domain.IRepositorioLibro;
 import org.palomafp.gestionbiblioteca.domain.Libro;
+import org.palomafp.gestionbiblioteca.domain.RepositorioException;
 
 import java.sql.*;
 import java.util.ArrayList;
@@ -21,7 +22,7 @@ public class RepositorioLibroJdbcImpl implements IRepositorioLibro {
                 return rs.getLong(1);
             }
         } catch (SQLException e) {
-            throw new RuntimeException("Error en count() de Libros: " + e.getMessage(), e);
+            throw new RepositorioException("Error en count() de Libros: " + e.getMessage(), e);
         }
         return 0;
     }
@@ -35,7 +36,7 @@ public class RepositorioLibroJdbcImpl implements IRepositorioLibro {
             pstmt.setLong(1, id);
             pstmt.executeUpdate();
         } catch (SQLException e) {
-            throw new RuntimeException("Error en deleteById() de Libros: " + e.getMessage(), e);
+            throw new RepositorioException("Error en deleteById() de Libros: " + e.getMessage(), e);
         }
     }
 
@@ -46,7 +47,7 @@ public class RepositorioLibroJdbcImpl implements IRepositorioLibro {
              Statement stmt = conn.createStatement()) {
             stmt.executeUpdate(sql);
         } catch (SQLException e) {
-            throw new RuntimeException("Error en deleteAll() de Libros: " + e.getMessage(), e);
+            throw new RepositorioException("Error en deleteAll() de Libros: " + e.getMessage(), e);
         }
     }
 
@@ -61,7 +62,7 @@ public class RepositorioLibroJdbcImpl implements IRepositorioLibro {
                 return rs.next();
             }
         } catch (SQLException e) {
-            throw new RuntimeException("Error en existsById() de Libros: " + e.getMessage(), e);
+            throw new RepositorioException("Error en existsById() de Libros: " + e.getMessage(), e);
         }
     }
 
@@ -79,7 +80,10 @@ public class RepositorioLibroJdbcImpl implements IRepositorioLibro {
     public <S extends Libro> S save(S entity) {
         if (entity == null) throw new IllegalArgumentException("La entidad no puede ser nula");
 
-        if (entity.getId() != null && existsById(entity.getId())) {
+        if (entity.getId() != null) {
+            if (!existsById(entity.getId())) {
+                throw new RepositorioException("No existe ningún Libro con id " + entity.getId() + " para actualizar.");
+            }
             // Actualización (UPDATE)
             String sql = "UPDATE libros SET isbn = ?, titulo = ?, sede_id = ? WHERE id = ?";
             try (Connection conn = DatabaseConnection.getConnection();
@@ -90,7 +94,7 @@ public class RepositorioLibroJdbcImpl implements IRepositorioLibro {
                 pstmt.setLong(4, entity.getId());
                 pstmt.executeUpdate();
             } catch (SQLException e) {
-                throw new RuntimeException("Error al actualizar Libro: " + e.getMessage(), e);
+                throw new RepositorioException("Error al actualizar Libro: " + e.getMessage(), e);
             }
         } else {
             // Inserción (INSERT)
@@ -108,7 +112,7 @@ public class RepositorioLibroJdbcImpl implements IRepositorioLibro {
                     }
                 }
             } catch (SQLException e) {
-                throw new RuntimeException("Error al insertar Libro: " + e.getMessage(), e);
+                throw new RepositorioException("Error al insertar Libro: " + e.getMessage(), e);
             }
         }
         return entity;
@@ -123,17 +127,11 @@ public class RepositorioLibroJdbcImpl implements IRepositorioLibro {
             pstmt.setLong(1, id);
             try (ResultSet rs = pstmt.executeQuery()) {
                 if (rs.next()) {
-                    Libro libro = new Libro(
-                            rs.getLong("id"),
-                            new Isbn(rs.getString("isbn")),
-                            rs.getString("titulo"),
-                            rs.getLong("sede_id")
-                    );
-                    return Optional.of(libro);
+                    return Optional.of(mapRowToLibro(rs));
                 }
             }
         } catch (SQLException e) {
-            throw new RuntimeException("Error en findByIdOptional() de Libros: " + e.getMessage(), e);
+            throw new RepositorioException("Error en findByIdOptional() de Libros: " + e.getMessage(), e);
         }
         return Optional.empty();
     }
@@ -146,21 +144,17 @@ public class RepositorioLibroJdbcImpl implements IRepositorioLibro {
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
             while (rs.next()) {
-                lista.add(new Libro(
-                        rs.getLong("id"),
-                        new Isbn(rs.getString("isbn")),
-                        rs.getString("titulo"),
-                        rs.getLong("sede_id")
-                ));
+                lista.add(mapRowToLibro(rs));
             }
         } catch (SQLException e) {
-            throw new RuntimeException("Error en findAllToList() de Libros: " + e.getMessage(), e);
+            throw new RepositorioException("Error en findAllToList() de Libros: " + e.getMessage(), e);
         }
         return lista;
     }
 
     @Override
     public List<Libro> findBySedeId(Long sedeId) {
+        if (sedeId == null) throw new IllegalArgumentException("El id de la sede no puede ser nulo");
         List<Libro> lista = new ArrayList<>();
         String sql = "SELECT id, isbn, titulo, sede_id FROM libros WHERE sede_id = ?";
         try (Connection conn = DatabaseConnection.getConnection();
@@ -168,31 +162,42 @@ public class RepositorioLibroJdbcImpl implements IRepositorioLibro {
             pstmt.setLong(1, sedeId);
             try (ResultSet rs = pstmt.executeQuery()) {
                 while (rs.next()) {
-                    lista.add(new Libro(
-                            rs.getLong("id"),
-                            new Isbn(rs.getString("isbn")),
-                            rs.getString("titulo"),
-                            rs.getLong("sede_id")
-                    ));
+                    lista.add(mapRowToLibro(rs));
                 }
             }
         } catch (SQLException e) {
-            throw new RuntimeException("Error en findBySedeId(): " + e.getMessage(), e);
+            throw new RepositorioException("Error en findBySedeId(): " + e.getMessage(), e);
         }
         return lista;
     }
 
     @Override
-    public boolean cambiarTituloLibro(Long libroId, String nuevoTitulo) {
-        String sql = "UPDATE libros SET titulo = ? WHERE id = ?";
+    public List<Libro> findByTituloContaining(String texto) {
+        if (texto == null || texto.isBlank()) {
+            throw new IllegalArgumentException("El texto de búsqueda no puede ser nulo ni vacío");
+        }
+        List<Libro> lista = new ArrayList<>();
+        String sql = "SELECT id, isbn, titulo, sede_id FROM libros WHERE titulo LIKE ?";
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            pstmt.setString(1, nuevoTitulo);
-            pstmt.setLong(2, libroId);
-            int filasAfectadas = pstmt.executeUpdate();
-            return filasAfectadas > 0;
+            pstmt.setString(1, "%" + texto + "%");
+            try (ResultSet rs = pstmt.executeQuery()) {
+                while (rs.next()) {
+                    lista.add(mapRowToLibro(rs));
+                }
+            }
         } catch (SQLException e) {
-            throw new RuntimeException("Error en cambiarTituloLibro(): " + e.getMessage(), e);
+            throw new RepositorioException("Error en findByTituloContaining(): " + e.getMessage(), e);
         }
+        return lista;
+    }
+
+    private Libro mapRowToLibro(ResultSet rs) throws SQLException {
+        return new Libro(
+                rs.getLong("id"),
+                new Isbn(rs.getString("isbn")),
+                rs.getString("titulo"),
+                rs.getLong("sede_id")
+        );
     }
 }

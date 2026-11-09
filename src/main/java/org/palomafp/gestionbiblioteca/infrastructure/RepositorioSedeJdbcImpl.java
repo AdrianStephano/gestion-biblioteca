@@ -1,6 +1,7 @@
 package org.palomafp.gestionbiblioteca.infrastructure;
 
 import org.palomafp.gestionbiblioteca.domain.IRepositorioSede;
+import org.palomafp.gestionbiblioteca.domain.RepositorioException;
 import org.palomafp.gestionbiblioteca.domain.SedeBiblioteca;
 
 import java.sql.*;
@@ -20,7 +21,7 @@ public class RepositorioSedeJdbcImpl implements IRepositorioSede {
                 return rs.getLong(1);
             }
         } catch (SQLException e) {
-            throw new RuntimeException("Error en count(): " + e.getMessage(), e);
+            throw new RepositorioException("Error en count() de Sedes: " + e.getMessage(), e);
         }
         return 0;
     }
@@ -34,7 +35,7 @@ public class RepositorioSedeJdbcImpl implements IRepositorioSede {
             pstmt.setLong(1, id);
             pstmt.executeUpdate();
         } catch (SQLException e) {
-            throw new RuntimeException("Error en deleteById(): " + e.getMessage(), e);
+            throw new RepositorioException("Error en deleteById() de Sedes: " + e.getMessage(), e);
         }
     }
 
@@ -45,7 +46,7 @@ public class RepositorioSedeJdbcImpl implements IRepositorioSede {
              Statement stmt = conn.createStatement()) {
             stmt.executeUpdate(sql);
         } catch (SQLException e) {
-            throw new RuntimeException("Error en deleteAll(): " + e.getMessage(), e);
+            throw new RepositorioException("Error en deleteAll() de Sedes: " + e.getMessage(), e);
         }
     }
 
@@ -60,7 +61,7 @@ public class RepositorioSedeJdbcImpl implements IRepositorioSede {
                 return rs.next();
             }
         } catch (SQLException e) {
-            throw new RuntimeException("Error en existsById(): " + e.getMessage(), e);
+            throw new RepositorioException("Error en existsById() de Sedes: " + e.getMessage(), e);
         }
     }
 
@@ -78,7 +79,10 @@ public class RepositorioSedeJdbcImpl implements IRepositorioSede {
     public <S extends SedeBiblioteca> S save(S entity) {
         if (entity == null) throw new IllegalArgumentException("La entidad no puede ser nula");
 
-        if (entity.getId() != null && existsById(entity.getId())) {
+        if (entity.getId() != null) {
+            if (!existsById(entity.getId())) {
+                throw new RepositorioException("No existe ninguna Sede con id " + entity.getId() + " para actualizar.");
+            }
             // Lógica de actualización (UPDATE) exigida por rúbrica
             String sql = "UPDATE sedes SET nombre = ?, ciudad = ? WHERE id = ?";
             try (Connection conn = DatabaseConnection.getConnection();
@@ -88,7 +92,7 @@ public class RepositorioSedeJdbcImpl implements IRepositorioSede {
                 pstmt.setLong(3, entity.getId());
                 pstmt.executeUpdate();
             } catch (SQLException e) {
-                throw new RuntimeException("Error al actualizar Sede: " + e.getMessage(), e);
+                throw new RepositorioException("Error al actualizar Sede: " + e.getMessage(), e);
             }
         } else {
             // Lógica de inserción (INSERT)
@@ -105,7 +109,7 @@ public class RepositorioSedeJdbcImpl implements IRepositorioSede {
                     }
                 }
             } catch (SQLException e) {
-                throw new RuntimeException("Error al insertar Sede: " + e.getMessage(), e);
+                throw new RepositorioException("Error al insertar Sede: " + e.getMessage(), e);
             }
         }
         return entity;
@@ -120,16 +124,11 @@ public class RepositorioSedeJdbcImpl implements IRepositorioSede {
             pstmt.setLong(1, id);
             try (ResultSet rs = pstmt.executeQuery()) {
                 if (rs.next()) {
-                    SedeBiblioteca sede = new SedeBiblioteca(
-                            rs.getLong("id"),
-                            rs.getString("nombre"),
-                            rs.getString("ciudad")
-                    );
-                    return Optional.of(sede);
+                    return Optional.of(mapRowToSede(rs));
                 }
             }
         } catch (SQLException e) {
-            throw new RuntimeException("Error en findByIdOptional(): " + e.getMessage(), e);
+            throw new RepositorioException("Error en findByIdOptional() de Sedes: " + e.getMessage(), e);
         }
         return Optional.empty();
     }
@@ -142,20 +141,19 @@ public class RepositorioSedeJdbcImpl implements IRepositorioSede {
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
             while (rs.next()) {
-                lista.add(new SedeBiblioteca(
-                        rs.getLong("id"),
-                        rs.getString("nombre"),
-                        rs.getString("ciudad")
-                ));
+                lista.add(mapRowToSede(rs));
             }
         } catch (SQLException e) {
-            throw new RuntimeException("Error en findAllToList(): " + e.getMessage(), e);
+            throw new RepositorioException("Error en findAllToList() de Sedes: " + e.getMessage(), e);
         }
         return lista;
     }
 
     @Override
     public List<SedeBiblioteca> findByCiudad(String ciudad) {
+        if (ciudad == null || ciudad.isBlank()) {
+            throw new IllegalArgumentException("La ciudad no puede ser nula ni vacía");
+        }
         List<SedeBiblioteca> lista = new ArrayList<>();
         String sql = "SELECT id, nombre, ciudad FROM sedes WHERE ciudad = ?";
         try (Connection conn = DatabaseConnection.getConnection();
@@ -163,21 +161,18 @@ public class RepositorioSedeJdbcImpl implements IRepositorioSede {
             pstmt.setString(1, ciudad);
             try (ResultSet rs = pstmt.executeQuery()) {
                 while (rs.next()) {
-                    lista.add(new SedeBiblioteca(
-                            rs.getLong("id"),
-                            rs.getString("nombre"),
-                            rs.getString("ciudad")
-                    ));
+                    lista.add(mapRowToSede(rs));
                 }
             }
         } catch (SQLException e) {
-            throw new RuntimeException("Error en findByCiudad(): " + e.getMessage(), e);
+            throw new RepositorioException("Error en findByCiudad(): " + e.getMessage(), e);
         }
         return lista;
     }
 
     @Override
     public long contarLibrosEnSede(Long sedeId) {
+        if (sedeId == null) throw new IllegalArgumentException("El id de la sede no puede ser nulo");
         String sql = "SELECT COUNT(*) FROM libros WHERE sede_id = ?";
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
@@ -188,8 +183,16 @@ public class RepositorioSedeJdbcImpl implements IRepositorioSede {
                 }
             }
         } catch (SQLException e) {
-            throw new RuntimeException("Error en contarLibrosEnSede(): " + e.getMessage(), e);
+            throw new RepositorioException("Error en contarLibrosEnSede(): " + e.getMessage(), e);
         }
         return 0;
+    }
+
+    private SedeBiblioteca mapRowToSede(ResultSet rs) throws SQLException {
+        return new SedeBiblioteca(
+                rs.getLong("id"),
+                rs.getString("nombre"),
+                rs.getString("ciudad")
+        );
     }
 }
