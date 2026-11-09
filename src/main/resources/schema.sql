@@ -1,24 +1,21 @@
-CREATE DATABASE IF NOT EXISTS db_biblioteca;
-USE db_biblioteca;
-
 CREATE TABLE IF NOT EXISTS sedes (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    nombre VARCHAR(100) NOT NULL,
-    ciudad VARCHAR(100) NOT NULL
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre TEXT NOT NULL,
+    ciudad TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS libros (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    isbn VARCHAR(20) NOT NULL,
-    titulo VARCHAR(150) NOT NULL,
-    sede_id BIGINT NOT NULL,
-    CONSTRAINT fk_libro_sede FOREIGN KEY (sede_id) REFERENCES sedes(id) ON DELETE CASCADE
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    isbn TEXT NOT NULL,
+    titulo TEXT NOT NULL,
+    sede_id INTEGER NOT NULL,
+    FOREIGN KEY (sede_id) REFERENCES sedes(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS prestamos (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    fecha_prestamo DATE NOT NULL,
-    fecha_devolucion DATE,
-    libro_id BIGINT NOT NULL,
-    CONSTRAINT fk_prestamo_libro FOREIGN KEY (libro_id) REFERENCES libros(id) ON DELETE CASCADE
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fecha_prestamo TEXT NOT NULL,
+    fecha_devolucion TEXT,
+    libro_id INTEGER NOT NULL,
+    FOREIGN KEY (libro_id) REFERENCES libros(id) ON DELETE CASCADE
 );
